@@ -1,0 +1,12 @@
+#Using cmd with netsh:
+
+netsh advfirewall firewall add rule name="Block ICMP Timestamp Request" dir=in protocol=icmpv4:13,any action=block
+netsh advfirewall firewall add rule name="Block ICMP Timestamp Reply" dir=out protocol=icmpv4:14,any action=block
+
+Using PowerShell:
+
+New-NetFirewallRule -DisplayName "Block ICMP Timestamp Request" -Direction Inbound -Protocol ICMPv4 -IcmpType 13 -Action Block
+New-NetFirewallRule -DisplayName "Block ICMP Timestamp Reply" -Direction Outbound -Protocol ICMPv4 -IcmpType 14 -Action Block
+
+Test:
+hping3 -c 1 -C 13 <target_ip>
