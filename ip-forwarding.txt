@@ -1,0 +1,25 @@
+#CVE-1999-0511
+
+IP Forwarding Enabled
+Description
+The remote host has IP forwarding enabled. An attacker can exploit this to route packets through the host and potentially bypass some firewalls / routers / NAC filtering.
+
+Unless the remote host is a router, it is recommended that you disable IP forwarding.
+Solution
+On Linux, you can disable IP forwarding by doing :
+
+echo 0 > /proc/sys/net/ipv4/ip_forward
+
+On Windows, set the key 'IPEnableRouter' to 0 under
+
+HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Tcpip\Parameters
+
+On Mac OS X, you can disable IP forwarding by executing the command :
+
+sysctl -w net.inet.ip.forwarding=0
+
+For other systems, check with your vendor.
+
+Alternatively, you can set it via Command Prompt (as Administrator):
+
+reg add HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Tcpip\Parameters /v IPEnableRouter /t REG_DWORD /d 0 /f
