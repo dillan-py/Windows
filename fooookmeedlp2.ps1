@@ -1,6 +1,6 @@
 # ============================================================
 # Windows 11 23H2 → 25H2 Silent Upgrade Script
-# Fully validated for PDQ Deploy
+# Automatically detects edition, validates ISO, PDQ Deploy ready
 # ============================================================
 
 $ServerMedia = "\\MYSERVER\Sources\Win11_25H2"
@@ -29,7 +29,6 @@ catch {
     exit 1
 }
 
-# Ensure upgrade is needed
 if ($DisplayVersion -eq "25H2") {
     Log "System already running Windows 11 25H2. Exiting."
     exit 0
@@ -50,32 +49,9 @@ catch {
 }
 
 # -----------------------------
-# Stage 3: Map edition to WIM index
+# Stage 3: Copy installation media locally
 # -----------------------------
-$WimIndex = switch ($EditionID) {
-    "Core"                     { 1 }
-    "CoreN"                    { 2 }
-    "CoreSingleLanguage"       { 3 }
-    "Education"                { 4 }
-    "EducationN"               { 5 }
-    "Professional"             { 6 }
-    "ProfessionalN"            { 7 }
-    "ProfessionalEducation"    { 8 }
-    "ProfessionalEducationN"   { 9 }
-    "ProWorkstations"          { 10 }
-    "ProWorkstationsN"         { 11 }
-    default {
-        Log "ERROR: Unsupported EditionID: $EditionID. Upgrade cannot continue."
-        exit 1
-    }
-}
-
-Log "Mapped EditionID $EditionID → install.wim index $WimIndex"
-
-# -----------------------------
-# Stage 4: Copy installation media locally
-# -----------------------------
-Log "=== Stage 4: Copying installation media locally ==="
+Log "=== Stage 3: Copying installation media locally ==="
 if (Test-Path $LocalMedia) {
     Log "Cleaning previous upgrade folder..."
     Remove-Item -Recurse -Force $LocalMedia
@@ -92,9 +68,9 @@ catch {
 }
 
 # -----------------------------
-# Stage 5: Validate setup.exe and install.wim
+# Stage 4: Validate setup.exe and install.wim
 # -----------------------------
-Log "=== Stage 5: Validating setup.exe and install.wim ==="
+Log "=== Stage 4: Validating setup.exe and install.wim ==="
 $Setup = "$LocalMedia\setup.exe"
 $WimFile = "$LocalMedia\sources\install.wim"
 
@@ -108,33 +84,62 @@ if (!(Test-Path $WimFile)) {
     exit 1
 }
 
-# Validate that WIM index exists
+# -----------------------------
+# Stage 5: Detect WIM index automatically
+# -----------------------------
+Log "=== Stage 5: Detecting WIM index for installed edition ==="
 try {
     $WimInfo = dism /Get-WimInfo /WimFile:$WimFile 2>&1
-    $ValidIndexes = ($WimInfo | Where-Object {$_ -match "Index : (\d+)"} | ForEach-Object {$matches[1]})
-    if ($ValidIndexes -notcontains $WimIndex) {
-        Log "ERROR: WIM index $WimIndex for Edition $EditionID not found in $WimFile"
+    $IndexMapping = @{}
+
+    # Map DISM Index names to index numbers
+    foreach ($line in $WimInfo) {
+        if ($line -match "Index : (\d+)") { $currentIndex = [int]$matches[1] }
+        if ($line -match "Name : (.+)") { $name = $matches[1].Trim(); $IndexMapping[$name] = $currentIndex }
+    }
+
+    # Pre-flight mapping: EditionID → WIM Name
+    $EditionToWimName = @{
+        "Core"                     = "Windows 11 Home"
+        "CoreN"                    = "Windows 11 Home N"
+        "CoreSingleLanguage"       = "Windows 11 Home Single Language"
+        "Education"                = "Windows 11 Education"
+        "EducationN"               = "Windows 11 Education N"
+        "Professional"             = "Windows 11 Pro"
+        "ProfessionalN"            = "Windows 11 Pro N"
+        "ProfessionalEducation"    = "Windows 11 Pro Education"
+        "ProfessionalEducationN"   = "Windows 11 Pro Education N"
+        "ProWorkstations"          = "Windows 11 Pro for Workstations"
+        "ProWorkstationsN"         = "Windows 11 Pro N for Workstations"
+    }
+
+    if (-not $EditionToWimName.ContainsKey($EditionID)) {
+        Log "ERROR: Unsupported EditionID: $EditionID. Cannot continue."
         exit 1
     }
-    Log "Validated WIM index $WimIndex exists in install.wim"
+
+    $ExpectedWimName = $EditionToWimName[$EditionID]
+
+    if (-not $IndexMapping.ContainsKey($ExpectedWimName)) {
+        Log "ERROR: ISO does not contain WIM image for $EditionID ($ExpectedWimName)"
+        exit 1
+    }
+
+    $WimIndex = $IndexMapping[$ExpectedWimName]
+    Log "Detected WIM index $WimIndex for EditionID $EditionID ($ExpectedWimName)"
 }
 catch {
-    Log "ERROR: Could not read WIM info from $WimFile"
+    Log "ERROR: Failed to parse WIM info or detect correct index."
     exit 1
 }
-
-# Debug output
-Log "DEBUG: setup.exe exists: $(Test-Path $Setup)"
-Log "DEBUG: install.wim exists: $(Test-Path $WimFile)"
-Log "DEBUG: Selected WIM index: $WimIndex"
 
 # -----------------------------
 # Stage 6: Launch Setup.exe
 # -----------------------------
 Log "=== Stage 6: Launching Setup.exe ==="
 $Args = "/auto upgrade /quiet /eula accept /dynamicupdate enable /compat ignorewarning /showoobe none /telemetry disable /noreboot /installfrom `"$WimFile`:$WimIndex`""
-
 Log "Running: $Setup $Args"
+
 try {
     $Process = Start-Process -FilePath $Setup -ArgumentList $Args -PassThru
     if (!$Process) {
@@ -149,11 +154,9 @@ catch {
 }
 
 # -----------------------------
-# Stage 7: Waiting for Setup.exe to exit
+# Stage 7: Wait for Setup.exe to exit with heartbeat
 # -----------------------------
 Log "=== Stage 7: Waiting for Setup.exe to complete ==="
-
-# Optional heartbeat logs to keep PDQ informed
 $HeartbeatSeconds = 60
 while (-not $Process.HasExited) {
     Log "setup.exe running... waiting for exit"
@@ -169,7 +172,7 @@ if ($ExitCode -notin @(0, 3010, 1641)) {
     exit $ExitCode
 }
 
-Log "Setup staged successfully. Upgrade ready to complete on reboot."
+Log "Setup staged successfully. Upgrade will complete on reboot."
 
 # -----------------------------
 # Stage 8: Reboot to complete upgrade
