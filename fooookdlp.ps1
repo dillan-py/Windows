@@ -1,65 +1,111 @@
-# ================================================
-# Windows 11 23H2 → 25H2 Silent In-Place Upgrade
-# Fully unattended | PDQ Deploy Compatible
-# ================================================
+# ============================================================
+# Windows 11 23H2 → 25H2 Silent Upgrade Script
+# PDQ Deploy Compatible
+# Corrected OS version detection using DisplayVersion
+# Verifies setup.exe actually starts
+# Logs everything
+# ============================================================
 
-$ServerMedia = "\\YOURSERVER\Sources\Win11_25H2"
-$LocalMedia  = "C:\_Win11_25H2"
+$ServerMedia = "\\MYSERVER\Sources\Win11_25H2"
+$LocalMedia  = "C:\Windows\Temp\Win11_25H2_Upgrade"
 $LogFile     = "C:\Windows\Temp\Win11_25H2_Upgrade.log"
 
 Function Log {
-    param([string]$msg)
-    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    Add-Content -Path $LogFile -Value "$timestamp | $msg"
-    Write-Output $msg
+    param([string]$Message)
+    $ts = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    Add-Content -Path $LogFile -Value "$ts | $Message"
+    Write-Output "$Message"
 }
 
-Log "=== Windows 11 25H2 Upgrade Script Starting ==="
+Log "=== Starting Windows 11 25H2 Upgrade Script ==="
 
-# --- Detect Release ID ---
+# ------------------------------------------
+# Detect correct version from DisplayVersion
+# ------------------------------------------
 try {
-    $ReleaseID = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ReleaseId
-    Log "Detected Windows Release: $ReleaseID"
-} catch {
-    Log "ERROR: Cannot read Release ID."
+    $DisplayVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").DisplayVersion
+    Log "Detected Windows DisplayVersion: $DisplayVersion"
+}
+catch {
+    Log "ERROR: Could not read DisplayVersion. Exiting."
     exit 1
 }
 
-# --- Check if Upgrade Needed ---
-if ($ReleaseID -ge 2500) {
-    Log "System already running 25H2 or newer. Exiting."
+# ------------------------------------------
+# Determine if upgrade needed
+# ------------------------------------------
+if ($DisplayVersion -ge 25) {
+    Log "System already running Windows 11 $DisplayVersion (25H2 or later). Exiting."
     exit 0
 }
 
-Log "Upgrade required. Continuing..."
+Log "System requires upgrade to 25H2. Proceeding..."
 
-# --- Copy Media from Server ---
+# ------------------------------------------
+# Copy installation media locally
+# ------------------------------------------
 if (Test-Path $LocalMedia) {
-    Log "Removing existing local media..."
+    Log "Cleaning previous upgrade folder..."
     Remove-Item -Recurse -Force $LocalMedia
 }
 
-Log "Copying Windows 11 25H2 installation media..."
+Log "Copying media from $ServerMedia to $LocalMedia ..."
 Copy-Item -Recurse -Force $ServerMedia $LocalMedia
 
+# ------------------------------------------
+# Validate setup.exe
+# ------------------------------------------
 $Setup = "$LocalMedia\setup.exe"
 
 if (!(Test-Path $Setup)) {
-    Log "ERROR: setup.exe not found at: $Setup"
+    Log "ERROR: setup.exe was NOT found at: $Setup"
     exit 1
 }
 
-Log "Launching Windows 11 Setup..."
+Log "setup.exe found successfully."
 
-# --- Silent Upgrade Arguments ---
-$Args = "/auto upgrade /quiet /dynamicupdate enable /compat ignorewarning /showoobe none /eula accept /telemetry disable /restart"
+# ------------------------------------------
+# Run the silent upgrade
+# ------------------------------------------
+$Args = "/auto upgrade /quiet /dynamicupdate enable /compat ignorewarning /showoobe none /eula accept /telemetry disable /noreboot"
 
-Start-Process -FilePath $Setup -ArgumentList $Args -Wait
+Log "Launching Windows Setup with arguments: $Args"
 
-Log "Setup process complete. System will reboot shortly."
+$Process = Start-Process -FilePath $Setup -ArgumentList $Args -PassThru
 
-# --- In case setup doesn't reboot automatically ---
-shutdown.exe /r /t 30 /c "Upgrading Windows 11 to version 25H2..."
+if (!$Process) {
+    Log "ERROR: Failed to launch setup.exe"
+    exit 1
+}
 
-Log "=== Upgrade Script Completed ==="
+Log "setup.exe started successfully. Waiting for exit..."
+
+# Wait for setup.exe to finish (this may be very quick if preparation stage ends instantly)
+Wait-Process -Id $Process.Id
+
+# ------------------------------------------
+# Check exit code
+# ------------------------------------------
+$ExitCode = $Process.ExitCode
+Log "setup.exe exit code: $ExitCode"
+
+# Known good exit codes:
+# 0 = Success
+# 3010 = Success, reboot required
+# 1641 = Success, reboot initiated
+
+if ($ExitCode -notin @(0, 3010, 1641)) {
+    Log "ERROR: setup.exe returned a failure exit code ($ExitCode). Upgrade did NOT start."
+    exit $ExitCode
+}
+
+Log "Setup completed successfully. A reboot will be initiated."
+
+# ------------------------------------------
+# Reboot to complete upgrade
+# ------------------------------------------
+shutdown.exe /r /t 30 /c "Completing upgrade to Windows 11 25H2..."
+
+Log "=== Upgrade script has completed. System should reboot shortly. ==="
+
 exit 0
