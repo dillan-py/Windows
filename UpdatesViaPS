@@ -10,6 +10,13 @@ Process Undefined
 CurrentUser Undefined
 LocalMachine Undefined
 
+Compare
+Scope               Temporary?  Where stored
+Process✅           Yes         Memory
+onlyCurrentUser❌   No          Registry (your profile)
+LocalMachine❌      No          Registry (system-wide)
+MachinePolicy❌     No          Group Policy
+
 We must first check our systems Execution Policy to ensure we can download, load, and run modules and scripts.
 The above command will output a list showing the policy set for each scope.
 In our case, we do not want this change to be permanent, so we will only change the ExecutionPolicy for the scope of Process.
