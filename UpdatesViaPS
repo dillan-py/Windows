@@ -1,0 +1,72 @@
+Open administrator 
+
+PS C:\User> Get-ExecutionPolicy -List
+
+Scope ExecutionPolicy
+----- ---------------
+MachinePolicy Undefined
+UserPolicy Undefined
+Process Undefined
+CurrentUser Undefined
+LocalMachine Undefined
+
+We must first check our systems Execution Policy to ensure we can download, load, and run modules and scripts.
+The above command will output a list showing the policy set for each scope.
+In our case, we do not want this change to be permanent, so we will only change the ExecutionPolicy for the scope of Process.
+
+PS C:\User> Set-ExecutionPolicy Unrestricted -Scope Process
+
+Execution Policy Change
+The execution policy helps protect you from scripts that you do not trust.
+Changing the execution policy might expose you to the security risks described in the about_Execution_Policies help topic at https:/go.microsoft.com/fwlink/?LinkID=135170. Do you want to change the execution policy?
+[Y] Yes [A] Yes to All [N] No [L] No to All [S] Suspend [?] Help (default is "N"): A
+
+PS C:\User> Get-ExecutionPolicy -List
+
+Scope ExecutionPolicy
+----- ---------------
+MachinePolicy Undefined
+UserPolicy Undefined
+Process Unrestricted
+CurrentUser Undefined
+LocalMachine Undefined
+
+Once we set our ExecutionPolicy, we should recheck and make sure our change took effect.
+By changing the Process scope policy, we ensure that our change is temporary and only applies to the current Powershell process.
+Changing it for any other scope will modify a registry setting and persist until we change it back again..
+
+Now that we have our ExecutionPolicy set, let us install the PSWindowsUpdate module and apply our updates. We can do so by:
+
+PSWindowsUpdate
+PS C:\htb> Install-Module PSWindowsUpdate
+
+Untrusted repository
+You are installing the modules from an untrusted repository. If you trust this repository,
+change its InstallationPolicy value by running the Set-PSRepository cmdlet.
+Are you sure you want to install the modules from 'PSGallery'?
+[Y] Yes [A] Yes to All [N] No [L] No to All [S] Suspend [?] Help (default is "N"): A
+
+Once the module installation completes, we can import it and run our updates.
+
+PS C:\User> Import-Module PSWindowsUpdate
+
+PS C:\User> Install-WindowsUpdate -AcceptAll
+
+X ComputerName Result KB Size Title
+- ------------ ------ -- ---- -----
+1 DESKTOP-3... Accepted KB2267602 510MB Security Intelligence Update for Microsoft Defender Antivirus - KB2267602...
+1 DESKTOP-3... Accepted 17MB VMware, Inc. - Display - 8.17.2.14
+2 DESKTOP-3... Downloaded KB2267602 510MB Security Intelligence Update for Microsoft Defender Antivirus - KB2267602...
+2 DESKTOP-3... Downloaded 17MB VMware, Inc. - Display - 8.17.2.14
+3 DESKTOP-3... Installed KB2267602 510MB Security Intelligence Update for Microsoft Defender Antivirus - KB2267602...
+3 DESKTOP-3... Installed 17MB VMware, Inc. - Display - 8.17.2.14
+
+PS C:\User> Restart-Computer -Force
+
+The above Powershell example will import the PSWindowsUpdate module, run the update installer, and then reboot the PC to apply changes. We should make a point to run updates regularly, especially if we plan to use this host frequently and not destroy it at the end of each engagement. 
+Now that we have our updates installed, let us get our package manager and other core tools.
+
+For the future:
+
+Import-Module PSWindowsUpdate
+Install-WindowsUpdate -AcceptAll
